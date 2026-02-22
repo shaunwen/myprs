@@ -20,59 +20,47 @@ It uses Bitbucket API token authentication via HTTP Basic auth (`email + api tok
 ## Requirements
 
 - macOS, Linux, or another terminal environment supported by `crossterm`.
-- Recent Rust toolchain with Cargo installed.
 - Bitbucket account email and API token.
 
 ## Quick Start
 
-1. Set credentials:
+1. Install via Homebrew:
+
+```bash
+brew tap shaunwen/myprs
+brew install myprs
+```
+
+2. Set credentials:
 
 ```bash
 export BITBUCKET_EMAIL="you@company.com"
 export BITBUCKET_API_TOKEN="<atlassian-api-token>"
 ```
 
-2. Set repositories (recommended):
+3. Set repositories (recommended):
 
 ```bash
 export BITBUCKET_REPOS="workspace-a/repo-1,workspace-b/repo-2"
 ```
 
-3. Run:
+4. Run:
 
 ```bash
-cargo run
+myprs
 ```
-
-## Environment Variables
-
-Required:
-
-- `BITBUCKET_EMAIL`
-- `BITBUCKET_API_TOKEN`
-
-Repository sources:
-
-- `BITBUCKET_REPOS` (comma-separated `workspace/repo` list, preferred)
-- `BITBUCKET_WORKSPACE` + `BITBUCKET_REPO` (single-repo compatibility path)
-
-Optional:
-
-- `BITBUCKET_PR_STATUS` (`open|merged|declined|all`)
-- `BITBUCKET_BASE_URL` (default: `https://api.bitbucket.org/2.0`)
 
 ## CLI Options
 
 You can override or add settings at startup:
 
 ```bash
-cargo run -- \
+myprs \
   --email you@company.com \
   --api-token <token> \
   --repo workspace-a/repo-1 \
   --repo workspace-b/repo-2 \
-  --status open \
-  --base-url https://api.bitbucket.org/2.0
+  --status open
 ```
 
 ## TUI Commands
