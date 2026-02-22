@@ -108,3 +108,26 @@ workspace = "workspace-b"
 repo = "repo-2"
 ```
 
+## Release Binary (macOS ARM64)
+
+This repository includes a GitHub Actions workflow that builds and uploads a macOS ARM64 binary on tag pushes:
+
+- Workflow file: `.github/workflows/release-macos-arm64.yml`
+- Trigger: push tag like `v0.1.1`
+- Output asset: `myprs-v0.1.1-aarch64-apple-darwin.tar.gz` and matching `.sha256`
+
+Release flow:
+
+```bash
+git tag -a v0.1.1 -m "v0.1.1"
+git push origin v0.1.1
+```
+
+To verify architecture from a downloaded asset:
+
+```bash
+tar -xzf myprs-v0.1.1-aarch64-apple-darwin.tar.gz
+file myprs
+```
+
+Expected output includes `arm64`.
