@@ -4,6 +4,10 @@
 
 It uses Bitbucket API token authentication via HTTP Basic auth (`email + api token`) and stores local settings in `~/.config/myprs/config.toml`.
 
+## UI Preview
+
+![myprs TUI screenshot](./Bitbucket-PR-TUI.png)
+
 ## Features
 
 - Fetch PRs you created across one or many repos.
