@@ -13,3 +13,10 @@ reqwest = { version = "0.11", default-features = false, features = ["blocking", 
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 webbrowser = "1.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+opt-level = 3
