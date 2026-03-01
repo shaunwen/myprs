@@ -12,9 +12,10 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
-use std::io;
+use std::collections::{HashMap, HashSet};
+use std::io::{self, Write};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 struct CommandSpec {
@@ -60,6 +61,7 @@ const COMMAND_SPECS: [CommandSpec; 7] = [
         accepts_args: false,
     },
 ];
+const MAX_LOGGED_UPDATES: usize = 6;
 
 pub fn run_app(config: Config) -> Result<()> {
     enable_raw_mode()?;
@@ -85,7 +87,7 @@ fn run_event_loop(
 ) -> Result<()> {
     let mut app = App::new(config);
     app.log("Type /help for commands.");
-    app.refresh_pull_requests();
+    app.refresh_pull_requests(false);
 
     loop {
         terminal.draw(|frame| app.draw(frame))?;
@@ -96,6 +98,8 @@ fn run_event_loop(
         {
             app.handle_key(key)?;
         }
+
+        app.refresh_pull_requests_if_due();
 
         if app.should_quit {
             break;
@@ -115,12 +119,15 @@ struct App {
     search_query: Option<String>,
     selected_index: usize,
     command_suggestion_index: usize,
+    auto_refresh_interval: Duration,
+    last_refresh_at: Option<Instant>,
     should_quit: bool,
 }
 
 impl App {
     fn new(config: Config) -> Self {
         let status_filter = config.status();
+        let auto_refresh_interval = Duration::from_secs(config.auto_refresh_seconds());
         Self {
             config,
             status_filter,
@@ -131,6 +138,8 @@ impl App {
             search_query: None,
             selected_index: 0,
             command_suggestion_index: 0,
+            auto_refresh_interval,
+            last_refresh_at: None,
             should_quit: false,
         }
     }
@@ -155,10 +164,11 @@ impl App {
         let header = Paragraph::new(Text::from(vec![
             Line::from("myprs - Bitbucket PR TUI"),
             Line::from(format!(
-                "Repos: {} | Status: {} | API token auth: {}",
+                "Repos: {} | Status: {} | API token auth: {} | Auto refresh: {}s",
                 self.config.repos().len(),
                 self.status_filter,
-                auth_status
+                auth_status,
+                self.auto_refresh_interval.as_secs()
             )),
         ]))
         .block(Block::default().borders(Borders::ALL).title("Status"));
@@ -348,6 +358,10 @@ impl App {
                     "Tip: type '/' to show command suggestions; use Up/Down + Tab to autocomplete.",
                 );
                 self.log("Tip: press Enter with empty command input to open selected PR.");
+                self.log(&format!(
+                    "Tip: auto refresh runs every {} seconds and rings terminal bell when updates are detected.",
+                    self.auto_refresh_interval.as_secs()
+                ));
             }
             "/quit" => {
                 self.should_quit = true;
@@ -361,7 +375,7 @@ impl App {
             "/status" => {
                 self.handle_status_command(&args)?;
             }
-            "/refresh" => self.refresh_pull_requests(),
+            "/refresh" => self.refresh_pull_requests(true),
             "/search" => self.handle_search_command(&args),
             _ => {
                 self.log("Unknown command. Try /help.");
@@ -447,11 +461,30 @@ impl App {
         }
 
         self.log(&format!("Status filter set to {}. Refreshing...", status));
-        self.refresh_pull_requests();
+        self.refresh_pull_requests(false);
         Ok(())
     }
 
-    fn refresh_pull_requests(&mut self) {
+    fn refresh_pull_requests_if_due(&mut self) {
+        let should_refresh = match self.last_refresh_at {
+            Some(last) => last.elapsed() >= self.auto_refresh_interval,
+            None => true,
+        };
+
+        if should_refresh {
+            self.refresh_pull_requests(true);
+        }
+    }
+
+    fn refresh_pull_requests(&mut self, notify_updates: bool) {
+        self.last_refresh_at = Some(Instant::now());
+        let previous_by_key = self
+            .all_pull_requests
+            .iter()
+            .cloned()
+            .map(|pr| (Self::pr_key(&pr), pr))
+            .collect::<HashMap<_, _>>();
+
         let Some((email, api_token)) = self
             .config
             .credentials()
@@ -499,6 +532,13 @@ impl App {
                 .then(left.repo.cmp(&right.repo))
                 .then_with(|| right.updated_on.cmp(&left.updated_on))
         });
+
+        let updates = if notify_updates && !previous_by_key.is_empty() {
+            self.collect_refresh_updates(&previous_by_key, &all_prs)
+        } else {
+            Vec::new()
+        };
+
         self.selected_index = 0;
         self.all_pull_requests = all_prs;
         self.apply_search_filter();
@@ -523,6 +563,10 @@ impl App {
 
         if failed_repos > 0 {
             self.log(&format!("{} repo(s) failed during refresh", failed_repos));
+        }
+
+        if !updates.is_empty() {
+            self.emit_update_notifications(&updates);
         }
     }
 
@@ -606,8 +650,8 @@ impl App {
             repo_pr_index += 1;
             rows.push((
                 format!(
-                    "  {}. #{} [{}] {} ({})",
-                    repo_pr_index, pr.id, pr.state, pr.title, pr.author
+                    "  {}. #{} [{} | comments:{}] {} ({})",
+                    repo_pr_index, pr.id, pr.state, pr.comment_count, pr.title, pr.author
                 ),
                 false,
             ));
@@ -737,5 +781,97 @@ impl App {
         };
         self.command_suggestion_index = 0;
         true
+    }
+
+    fn collect_refresh_updates(
+        &self,
+        previous_by_key: &HashMap<String, PullRequest>,
+        latest_pull_requests: &[PullRequest],
+    ) -> Vec<String> {
+        let mut updates = Vec::new();
+        let mut latest_keys = HashSet::new();
+
+        for pr in latest_pull_requests {
+            let key = Self::pr_key(pr);
+            latest_keys.insert(key.clone());
+
+            match previous_by_key.get(&key) {
+                Some(previous_pr) => {
+                    let mut has_specific_change = false;
+
+                    if previous_pr.comment_count != pr.comment_count {
+                        let delta = pr.comment_count as i64 - previous_pr.comment_count as i64;
+                        let signed_delta = if delta > 0 {
+                            format!("+{delta}")
+                        } else {
+                            delta.to_string()
+                        };
+                        updates.push(format!(
+                            "PR {}/{} #{} comments: {} -> {} ({signed_delta}).",
+                            pr.workspace,
+                            pr.repo,
+                            pr.id,
+                            previous_pr.comment_count,
+                            pr.comment_count
+                        ));
+                        has_specific_change = true;
+                    }
+
+                    if previous_pr.state != pr.state {
+                        updates.push(format!(
+                            "PR {}/{} #{} state: {} -> {}.",
+                            pr.workspace, pr.repo, pr.id, previous_pr.state, pr.state
+                        ));
+                        has_specific_change = true;
+                    }
+
+                    if !has_specific_change && previous_pr.updated_on != pr.updated_on {
+                        updates.push(format!(
+                            "PR {}/{} #{} has new activity.",
+                            pr.workspace, pr.repo, pr.id
+                        ));
+                    }
+                }
+                None => updates.push(format!(
+                    "New PR detected: {}/{} #{} {}.",
+                    pr.workspace, pr.repo, pr.id, pr.title
+                )),
+            }
+        }
+
+        for (key, previous_pr) in previous_by_key {
+            if latest_keys.contains(key) {
+                continue;
+            }
+            updates.push(format!(
+                "PR {}/{} #{} no longer in '{}' results.",
+                previous_pr.workspace, previous_pr.repo, previous_pr.id, self.status_filter
+            ));
+        }
+
+        updates
+    }
+
+    fn emit_update_notifications(&mut self, updates: &[String]) {
+        self.log(&format!("{} PR update(s) detected.", updates.len()));
+        for update in updates.iter().take(MAX_LOGGED_UPDATES) {
+            self.log(update);
+        }
+        if updates.len() > MAX_LOGGED_UPDATES {
+            self.log(&format!(
+                "...and {} more update(s).",
+                updates.len() - MAX_LOGGED_UPDATES
+            ));
+        }
+        self.ring_terminal_bell();
+    }
+
+    fn ring_terminal_bell(&self) {
+        let _ = io::stdout().write_all(b"\x07");
+        let _ = io::stdout().flush();
+    }
+
+    fn pr_key(pr: &PullRequest) -> String {
+        format!("{}/{}/{}", pr.workspace, pr.repo, pr.id)
     }
 }

@@ -14,6 +14,9 @@ It uses Bitbucket API token authentication via HTTP Basic auth (`email + api tok
 - Group PRs by repository in the main list.
 - Filter by PR status: `open`, `merged`, `declined`, `all`.
 - Search loaded PRs by PR number or text in title/description.
+- Show comment counts for each PR in the list.
+- Auto-refresh PR data every 120 seconds.
+- Notify on detected PR updates (comment count, state, and activity changes) using terminal bell.
 - Manage repositories directly from the TUI.
 - Open selected PR in your browser from the TUI.
 
@@ -43,7 +46,13 @@ export BITBUCKET_API_TOKEN="<atlassian-api-token>"
 export BITBUCKET_REPOS="workspace-a/repo-1,workspace-b/repo-2"
 ```
 
-4. Run:
+4. Optional: set refresh cadence (seconds, default `120`):
+
+```bash
+export BITBUCKET_AUTO_REFRESH_SECONDS=120
+```
+
+5. Run:
 
 ```bash
 myprs
@@ -59,7 +68,8 @@ myprs \
   --api-token <token> \
   --repo workspace-a/repo-1 \
   --repo workspace-b/repo-2 \
-  --status open
+  --status open \
+  --auto-refresh-seconds 120
 ```
 
 ## TUI Commands
@@ -89,6 +99,7 @@ myprs \
 bitbucket_email = "you@company.com"
 bitbucket_api_token = "<atlassian-api-token>"
 default_status = "open"
+auto_refresh_seconds = 120
 
 [[repos]]
 workspace = "workspace-a"

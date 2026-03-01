@@ -23,6 +23,8 @@ struct Cli {
     status: Option<PrStatus>,
     #[arg(long = "base-url")]
     base_url: Option<String>,
+    #[arg(long = "auto-refresh-seconds")]
+    auto_refresh_seconds: Option<u64>,
 }
 
 fn main() -> Result<()> {
@@ -35,6 +37,7 @@ fn main() -> Result<()> {
         cli.api_token,
         cli.status,
         cli.base_url,
+        cli.auto_refresh_seconds,
     )?;
 
     tui::run_app(config)

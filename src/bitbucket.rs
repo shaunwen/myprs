@@ -13,6 +13,7 @@ pub struct PullRequest {
     pub description: String,
     pub author: String,
     pub state: String,
+    pub comment_count: u64,
     pub updated_on: String,
     pub url: String,
 }
@@ -104,6 +105,7 @@ impl BitbucketClient {
                         .or(value.author.nickname)
                         .unwrap_or_else(|| "unknown".to_string()),
                     state: value.state,
+                    comment_count: value.comment_count,
                     updated_on: value.updated_on,
                     url: value.links.html.href,
                 }
@@ -143,6 +145,8 @@ struct PullRequestValue {
     description: Option<String>,
     summary: Option<PullRequestSummary>,
     state: String,
+    #[serde(default)]
+    comment_count: u64,
     updated_on: String,
     author: PullRequestAuthor,
     links: PullRequestLinks,

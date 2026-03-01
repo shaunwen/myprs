@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 const DEFAULT_BITBUCKET_BASE_URL: &str = "https://api.bitbucket.org/2.0";
+const DEFAULT_AUTO_REFRESH_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepoRef {
@@ -95,6 +96,7 @@ pub struct Config {
     pub bitbucket_api_token: Option<String>,
     pub repos: Vec<RepoRef>,
     pub default_status: PrStatus,
+    pub auto_refresh_seconds: u64,
 }
 
 impl Default for Config {
@@ -105,6 +107,7 @@ impl Default for Config {
             bitbucket_api_token: None,
             repos: Vec::new(),
             default_status: PrStatus::Open,
+            auto_refresh_seconds: DEFAULT_AUTO_REFRESH_SECONDS,
         }
     }
 }
@@ -149,6 +152,7 @@ impl Config {
         api_token: Option<String>,
         status: Option<PrStatus>,
         base_url: Option<String>,
+        auto_refresh_seconds: Option<u64>,
     ) -> Result<()> {
         let mut changed = false;
 
@@ -170,6 +174,12 @@ impl Config {
         if let Some(value) = read_env("BITBUCKET_BASE_URL") {
             self.bitbucket_base_url = value;
             changed = true;
+        }
+
+        if let Some(value) = read_env("BITBUCKET_AUTO_REFRESH_SECONDS") {
+            let parsed =
+                parse_auto_refresh_seconds("BITBUCKET_AUTO_REFRESH_SECONDS", value.as_str())?;
+            changed |= self.set_auto_refresh_seconds(parsed)?;
         }
 
         if let Some(value) = read_env("BITBUCKET_REPOS") {
@@ -203,6 +213,10 @@ impl Config {
                 self.bitbucket_base_url = value;
                 changed = true;
             }
+        }
+
+        if let Some(value) = auto_refresh_seconds {
+            changed |= self.set_auto_refresh_seconds(value)?;
         }
 
         for repo in repos {
@@ -252,6 +266,21 @@ impl Config {
         self.default_status = status;
         true
     }
+
+    pub fn auto_refresh_seconds(&self) -> u64 {
+        self.auto_refresh_seconds
+    }
+
+    pub fn set_auto_refresh_seconds(&mut self, seconds: u64) -> Result<bool> {
+        if seconds == 0 {
+            bail!("auto refresh seconds must be >= 1")
+        }
+        if self.auto_refresh_seconds == seconds {
+            return Ok(false);
+        }
+        self.auto_refresh_seconds = seconds;
+        Ok(true)
+    }
 }
 
 fn read_env(key: &str) -> Option<String> {
@@ -270,9 +299,19 @@ fn parse_repo_list(value: &str) -> Result<Vec<RepoRef>> {
         .collect()
 }
 
+fn parse_auto_refresh_seconds(key: &str, value: &str) -> Result<u64> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| anyhow!("{key} must be a positive integer"))?;
+    if parsed == 0 {
+        bail!("{key} must be >= 1")
+    }
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PrStatus, RepoRef};
+    use super::{Config, PrStatus, RepoRef};
 
     #[test]
     fn parses_repo_ref() {
@@ -303,5 +342,17 @@ mod tests {
             PrStatus::Declined
         );
         assert_eq!("all".parse::<PrStatus>().expect("all parse"), PrStatus::All);
+    }
+
+    #[test]
+    fn default_auto_refresh_seconds_is_120() {
+        let config = Config::default();
+        assert_eq!(config.auto_refresh_seconds(), 120);
+    }
+
+    #[test]
+    fn rejects_zero_auto_refresh_seconds() {
+        let mut config = Config::default();
+        assert!(config.set_auto_refresh_seconds(0).is_err());
     }
 }
