@@ -14,6 +14,7 @@ It uses Bitbucket API token authentication via HTTP Basic auth (`email + api tok
 - Group PRs by repository in the main list.
 - Filter by PR status: `open`, `merged`, `declined`, `all`.
 - Search loaded PRs by PR number or text in title/description.
+- Auto-refresh PRs and alert on updates (comments, state, activity).
 - Show comment counts for each PR in the list.
 - Auto-refresh PR data every 120 seconds.
 - Notify on detected PR updates (comment count, state, and activity changes) using terminal bell.
@@ -79,10 +80,28 @@ myprs \
 - `/repo rm <workspace>/<repo>`
 - `/repos`
 - `/status <open|merged|declined|all>`
-- `/refresh`
+- `/refresh` (run an immediate refresh and show update notifications)
 - `/search <text|pr-number>`
 - `/search clear`
 - `/quit`
+
+## Auto-Refresh and Update Notifications
+
+- Refresh interval defaults to `120` seconds.
+- Configure the interval with:
+  - env var: `BITBUCKET_AUTO_REFRESH_SECONDS`
+  - CLI flag: `--auto-refresh-seconds`
+  - config file key: `auto_refresh_seconds`
+- `auto_refresh_seconds` must be a positive integer (`>= 1`).
+- On each refresh, `myprs` compares the latest PR snapshot against the previous one and detects:
+  - comment count changes
+  - state changes
+  - new activity (`updated_on` changed)
+  - newly appeared / disappeared PRs in the current status filter
+- When updates are detected, `myprs`:
+  - logs an update summary in the TUI log panel
+  - emits a terminal bell (`\x07`)
+- The first load only fetches data; notifications are emitted on subsequent refreshes (auto or `/refresh`).
 
 ## Keybindings
 
