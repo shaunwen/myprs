@@ -27,8 +27,7 @@ It uses Bitbucket API token authentication via HTTP Basic auth (`email + api tok
 1. Install via Homebrew:
 
 ```bash
-brew tap shaunwen/myprs
-brew install myprs
+brew install shaunwen/tap/myprs
 ```
 
 2. Set credentials:
